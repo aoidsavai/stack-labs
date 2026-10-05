@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Air Theremin</title>
+<meta name="description" content="Pragnastack Labs: a camera theremin. Right hand sets pitch, left hand sets volume. Played in the air, without touching.">
+<style>
+  :root {
+    --bg: #0e0f13;
+    --panel: #171920;
+    --ink: #e9e6df;
+    --muted: #9a968d;
+    --line: #2a2d36;
+    --pitch: #7fd1c7;
+    --vol: #e8b86b;
+    --ok: #9fd17f;
+    --warn: #e88a6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { padding: 10px 16px; display: flex; justify-content: space-between; align-items: baseline; }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: .02em; }
+  header small { color: var(--muted); }
+  #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #000; }
+  video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  video { transform: scaleX(-1); opacity: .35; }
+  #readout { position: absolute; left: 0; right: 0; top: 12px; text-align: center; pointer-events: none; }
+  #note { font-size: 64px; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; }
+  #cents { font-size: 18px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #hz { font-size: 13px; color: var(--muted); }
+  #status { position: absolute; left: 16px; right: 16px; bottom: 12px; text-align: center;
+    color: var(--muted); font-size: 13px; pointer-events: none; }
+  #start { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; padding: 24px; text-align: center; background: rgba(14,15,19,.92); }
+  #start p { max-width: 34em; color: var(--muted); margin: 0; }
+  button, select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 14px; min-height: 44px; }
+  button.primary { background: var(--pitch); color: #0e0f13; border-color: var(--pitch); font-weight: 600; font-size: 17px; padding: 14px 28px; }
+  button[aria-pressed="true"] { border-color: var(--vol); color: var(--vol); }
+  #controls { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex; flex-wrap: wrap; gap: 8px; background: var(--panel); border-top: 1px solid var(--line); }
+  #controls label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+  #log { padding: 12px 16px 24px; background: var(--bg); }
+  #log h2 { font-size: 14px; margin: 0 0 8px; color: var(--muted); font-weight: 500; }
+  #log table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  #log td, #log th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  #log th { color: var(--muted); font-weight: 500; }
+  details summary { cursor: pointer; color: var(--muted); padding: 8px 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Air Theremin</h1>
+  <small>Pragnastack Labs</small>
+</header>
+
+<div id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="readout">
+    <div id="note">–</div>
+    <div id="cents">&nbsp;</div>
+    <div id="hz">&nbsp;</div>
+  </div>
+  <div id="status">Loading…</div>
+  <div id="start">
+    <p><strong style="color:var(--ink)">Right hand</strong> sets pitch: higher hand, higher note.<br>
+       <strong style="color:var(--ink)">Left hand</strong> sets volume: raise it to sound, lower it to fade.</p>
+    <p>Prop the phone up facing you, about an arm's length away, with your hands in view.</p>
+    <button class="primary" id="go" disabled>Loading hand tracking…</button>
+    <p style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center">
+      <button id="beep">Test sound</button>
+      <button id="touch">Play by touch</button>
+    </p>
+    <p style="font-size:12px">The camera stays on this phone. No video is uploaded or saved.</p>
+    <pre id="diag" style="text-align:left; font-size:12px; color:var(--muted); white-space:pre-wrap; margin:0; max-width:34em"></pre>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="mute" aria-pressed="false">Mute</button>
+  <button id="drone" aria-pressed="false">Drone</button>
+  <label>Range
+    <select id="range">
+      <option value="48">C3 – C6</option>
+      <option value="55">G3 – G6</option>
+      <option value="60">C4 – C7</option>
+      <option value="43">G2 – G5</option>
+    </select>
+  </label>
+  <label>Tone
+    <select id="wave">
+      <option value="sine">Sine</option>
+      <option value="triangle">Triangle</option>
+      <option value="soft">Soft (warm)</option>
+    </select>
+  </label>
+  <label>Steady
+    <select id="smooth">
+      <option value="0.25">Fast</option>
+      <option value="0.15" selected>Medium</option>
+      <option value="0.08">Slow</option>
+    </select>
+  </label>
+  <button id="end">End session</button>
+</div>
+
+<details id="logwrap">
+  <summary>Practice log</summary>
+  <div id="log">
+    <table>
+      <thead><tr><th>Date</th><th>Minutes</th><th>Sounding</th><th>Held notes</th><th>Avg off (¢)</th></tr></thead>
+      <tbody id="logbody"></tbody>
+    </table>
+    <p style="display:flex; gap:8px; margin-top:12px">
+      <button id="export">Save log file</button>
+      <button id="clear">Clear log</button>
+    </p>
+  </div>
+</details>
+
+<script>
+  // On-page diagnostics: phones have no developer console, so every stage reports here.
+  window.diag = function (msg, bad) {
+    var el = document.getElementById("diag");
+    if (!el) return;
+    el.textContent += (bad ? "✗ " : "✓ ") + msg + "\n";
+    var st = document.getElementById("status");
+    if (st && bad) st.textContent = "Problem: " + msg;
+  };
+  window.addEventListener("error", function (e) { diag("Error: " + (e.message || e), true); });
+  window.addEventListener("unhandledrejection", function (e) {
+    diag("Error: " + ((e.reason && e.reason.message) || e.reason), true);
+  });
+  diag("Page loaded" + (location.protocol === "https:" ? " over https" : ""), location.protocol !== "https:");
+  if (location.protocol !== "https:") diag("Camera needs https. Open the GitHub Pages link, not the file view.", true);
+</script>
+<script type="module">
+/*
+  Pragnastack Labs — Air Theremin
+  One self-contained page. Runs on: phone browser + camera (inventory, 2026-10-05).
+  Hand tracking: MediaPipe Tasks Vision (Google, Apache-2.0), loaded free from jsDelivr.
+  No affiliation. No accounts. No spend.
+*/
+const diag = window.diag;
+diag("Script running");
+let FilesetResolver, HandLandmarker;
+
+const $ = (id) => document.getElementById(id);
+const video = $("video"), canvas = $("canvas"), ctx = canvas.getContext("2d");
+const statusEl = $("status");
+const NOTE_NAMES = ["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"];
+const RANGE_SEMITONES = 36; // three octaves
+
+// ---------- state ----------
+let landmarker = null;
+let audio = null;            // { ctx, osc, gain, filter, drone, droneGain }
+let running = false;
+let muted = false;
+let lastVideoTime = -1;
+let pitchY = null, volY = null;  // smoothed 0..1 (0 = top)
+let lastFrameTs = 0;
+
+// session stats
+const session = {
+  start: null, soundingMs: 0, held: [],   // held: {midi, cents, ms}
+  cur: null                               // current note being held: {midi, centsSum, n, since}
+};
+
+// ---------- load tracker ----------
+let delegateUsed = "GPU";
+let trackerFiles = null;
+const trackerOpts = (delegate) => ({
+  baseOptions: {
+    modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+    delegate
+  },
+  runningMode: "VIDEO",
+  numHands: 2,
+  minHandDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+async function loadTracker() {
+  try {
+    ({ FilesetResolver, HandLandmarker } = await import(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"));
+    diag("Hand-tracking library downloaded");
+  } catch (e) {
+    diag("Could not download hand-tracking library: " + (e.message || e), true);
+    $("go").textContent = "Hand tracking unavailable — use Play by touch";
+    return;
+  }
+  try {
+    const files = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    const opts = (delegate) => ({
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+        delegate
+      },
+      runningMode: "VIDEO",
+      numHands: 2,
+      minHandDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    try { landmarker = await HandLandmarker.createFromOptions(files, opts("GPU")); }
+    catch { landmarker = await HandLandmarker.createFromOptions(files, opts("CPU")); }
+    $("go").disabled = false;
+    $("go").textContent = "Start";
+    statusEl.textContent = "Ready.";
+  } catch (e) {
+    $("go").textContent = "Could not load hand tracking";
+    statusEl.textContent = "Needs an internet connection the first time. " + (e.message || e);
+  }
+}
+loadTracker();
+
+// ---------- audio ----------
+function makeAudio() {
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = ac.createOscillator();
+  const filter = ac.createBiquadFilter();
+  const gain = ac.createGain();
+  filter.type = "lowpass"; filter.frequency.value = 6000; filter.Q.value = 0.5;
+  gain.gain.value = 0;
+  osc.connect(filter).connect(gain).connect(ac.destination);
+  osc.start();
+
+  const drone = ac.createOscillator();
+  const droneGain = ac.createGain();
+  drone.type = "sine"; droneGain.gain.value = 0;
+  drone.connect(droneGain).connect(ac.destination);
+  drone.start();
+
+  audio = { ctx: ac, osc, gain, filter, drone, droneGain };
+  applyWave();
+  applyDrone();
+}
+
+function applyWave() {
+  if (!audio) return;
+  const w = $("wave").value;
+  if (w === "soft") {
+    // a warm, slightly reedy tone: fundamental + gentle odd harmonics
+    const real = new Float32Array([0, 1, 0.0, 0.18, 0.0, 0.06, 0.0, 0.02]);
+    const imag = new Float32Array(real.length);
+    audio.osc.setPeriodicWave(audio.ctx.createPeriodicWave(real, imag));
+    audio.filter.frequency.value = 3500;
+  } else {
+    audio.osc.type = w;
+    audio.filter.frequency.value = w === "triangle" ? 4500 : 8000;
+  }
+}
+
+function baseMidi() { return Number($("range").value); }
+const midiToHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+function applyDrone() {
+  if (!audio) return;
+  const on = $("drone").getAttribute("aria-pressed") === "true";
+  audio.drone.frequency.value = midiToHz(baseMidi());
+  audio.droneGain.gain.setTargetAtTime(on ? 0.06 : 0, audio.ctx.currentTime, 0.1);
+}
+
+// ---------- start ----------
+$("go").addEventListener("click", async () => {
+  try {
+    makeAudio();
+    await audio.ctx.resume();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    video.srcObject = stream;
+    await video.play();
+    $("start").style.display = "none";
+    running = true;
+    session.start = Date.now();
+    statusEl.textContent = "Raise your left hand to sound. Move your right hand up and down for pitch.";
+    requestAnimationFrame(loop);
+  } catch (e) {
+    statusEl.textContent = "Camera not available: " + (e.message || e) +
+      ". The page must be opened over https (for example, GitHub Pages).";
+  }
+});
+
+// ---------- main loop ----------
+function loop(now) {
+  if (!running) return;
+  requestAnimationFrame(loop);
+  const dt = lastFrameTs ? Math.min(now - lastFrameTs, 100) : 16;
+  lastFrameTs = now;
+
+  if (canvas.width !== canvas.clientWidth) { canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (video.currentTime === lastVideoTime || !landmarker) return;
+  lastVideoTime = video.currentTime;
+
+  const res = landmarker.detectForVideo(video, now);
+  let pHand = null, vHand = null;
+
+  // The video is mirrored for display. A hand on the right side of the
+  // screen (the player's right hand) has a SMALL raw x value.
+  for (const lm of res.landmarks || []) {
+    const cx = lm[9].x; // middle-finger base: a steady palm point
+    if (cx < 0.5) { if (!pHand || cx < pHand[9].x) pHand = lm; }
+    else          { if (!vHand || cx > vHand[9].x) vHand = lm; }
+  }
+
+  const k = Number($("smooth").value);
+  const handY = (lm) => (lm[0].y + lm[5].y + lm[9].y + lm[17].y) / 4;
+  if (pHand) { const y = handY(pHand); pitchY = pitchY == null ? y : pitchY + (y - pitchY) * k; }
+  if (vHand) { const y = handY(vHand); volY = volY == null ? y : volY + (y - volY) * Math.min(1, k * 1.6); }
+  else { volY = volY == null ? 1 : volY + (1 - volY) * 0.2; }  // no left hand: fade out
+
+  // map: playable band is 10%..90% of frame height
+  const norm = (y) => Math.min(1, Math.max(0, (0.9 - y) / 0.8));
+  const pitchPos = pitchY == null ? 0.5 : norm(pitchY);
+  const volPos = norm(volY ?? 1);
+
+  const midi = baseMidi() + pitchPos * RANGE_SEMITONES;   // continuous, glides freely
+  const hz = midiToHz(midi);
+  const level = (pHand && !muted) ? Math.pow(volPos, 1.6) * 0.5 : 0;
+
+  if (audio) {
+    const t = audio.ctx.currentTime;
+    audio.osc.frequency.setTargetAtTime(hz, t, 0.015);
+    audio.gain.gain.setTargetAtTime(level, t, 0.03);
+  }
+
+  // readout
+  const nearest = Math.round(midi);
+  const cents = Math.round((midi - nearest) * 100);
+  if (pHand) {
+    $("note").textContent = NOTE_NAMES[((nearest % 12) + 12) % 12] + (Math.floor(nearest / 12) - 1);
+    $("cents").textContent = (cents > 0 ? "+" : cents < 0 ? "−" : "±") + Math.abs(cents) + "¢";
+    $("cents").style.color = Math.abs(cents) <= 10 ? "var(--ok)" : Math.abs(cents) <= 25 ? "var(--vol)" : "var(--warn)";
+    $("hz").textContent = hz.toFixed(1) + " Hz · volume " + Math.round(volPos * 100) + "%";
+  } else {
+    $("note").textContent = "–"; $("cents").textContent = " "; $("hz").textContent = " ";
+  }
+
+  // stats: sounding time and held notes (a note held ≥ 0.4 s while sounding)
+  const sounding = level > 0.02;
+  if (sounding) session.soundingMs += dt;
+  if (sounding && session.cur && session.cur.midi === nearest) {
+    session.cur.centsSum += Math.abs(cents); session.cur.n++;
+  } else {
+    closeHeld(now);
+    if (sounding) session.cur = { midi: nearest, centsSum: Math.abs(cents), n: 1, since: now };
+  }
+
+  draw(pHand, vHand, pitchPos, volPos);
+}
+
+function closeHeld(now) {
+  const c = session.cur;
+  if (c && now - c.since >= 400) session.held.push({ midi: c.midi, cents: c.centsSum / c.n, ms: now - c.since });
+  session.cur = null;
+}
+
+// ---------- drawing ----------
+function draw(pHand, vHand, pitchPos, volPos) {
+  const W = canvas.width, H = canvas.height;
+  // canvas covers the video with object-fit: cover; landmarks are in video space.
+  const vw = video.videoWidth || 640, vh = video.videoHeight || 480;
+  const s = Math.max(W / vw, H / vh), ox = (W - vw * s) / 2, oy = (H - vh * s) / 2;
+  const P = (p) => [W - (ox + p.x * vw * s), oy + p.y * vh * s]; // mirrored
+
+  // playable band guides
+  ctx.strokeStyle = "rgba(255,255,255,.08)"; ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {   // octave lines
+    const y = oy + (0.9 - 0.8 * (i / 3)) * vh * s;
+    ctx.beginPath(); ctx.moveTo(W * 0.52, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke();
+
+  const dots = (lm, color) => {
+    ctx.fillStyle = color;
+    for (const p of lm) { const [x, y] = P(p); ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill(); }
+  };
+  if (pHand) dots(pHand, "rgba(127,209,199,.9)");
+  if (vHand) dots(vHand, "rgba(232,184,107,.9)");
+
+  // side meters
+  const bar = (x, frac, color) => {
+    ctx.fillStyle = "rgba(255,255,255,.08)"; ctx.fillRect(x, H * 0.1, 6, H * 0.8);
+    ctx.fillStyle = color; const h = H * 0.8 * frac; ctx.fillRect(x, H * 0.9 - h, 6, h);
+  };
+  bar(W - 14, pitchPos, "#7fd1c7");
+  bar(8, volPos, "#e8b86b");
+}
+
+// ---------- controls ----------
+$("mute").addEventListener("click", (e) => {
+  muted = !muted; e.currentTarget.setAttribute("aria-pressed", String(muted));
+  e.currentTarget.textContent = muted ? "Muted" : "Mute";
+});
+$("drone").addEventListener("click", (e) => {
+  const on = e.currentTarget.getAttribute("aria-pressed") !== "true";
+  e.currentTarget.setAttribute("aria-pressed", String(on)); applyDrone();
+});
+$("range").addEventListener("change", applyDrone);
+$("wave").addEventListener("change", applyWave);
+
+// ---------- practice log ----------
+const LOG_KEY = "pragnastack-labs-theremin-log";
+function readLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]"); } catch { return []; } }
+function writeLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); } catch {} }
+let memoryLog = readLog();
+
+function renderLog() {
+  const tb = $("logbody"); tb.innerHTML = "";
+  if (!memoryLog.length) { tb.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No sessions yet.</td></tr>'; return; }
+  for (const s of memoryLog.slice().reverse()) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${s.date}</td><td>${s.minutes}</td><td>${s.soundingMinutes}</td><td>${s.heldNotes}</td><td>${s.avgCentsOff ?? "–"}</td>`;
+    tb.appendChild(tr);
+  }
+}
+renderLog();
+
+$("end").addEventListener("click", () => {
+  if (!session.start) return;
+  closeHeld(performance.now());
+  const held = session.held;
+  const entry = {
+    date: new Date(session.start).toISOString().slice(0, 16).replace("T", " "),
+    minutes: +((Date.now() - session.start) / 60000).toFixed(1),
+    soundingMinutes: +(session.soundingMs / 60000).toFixed(1),
+    heldNotes: held.length,
+    avgCentsOff: held.length ? Math.round(held.reduce((a, h) => a + h.cents, 0) / held.length) : null,
+    notes: held.map(h => ({ note: NOTE_NAMES[h.midi % 12] + (Math.floor(h.midi / 12) - 1), centsOff: Math.round(h.cents), ms: Math.round(h.ms) }))
+  };
+  memoryLog.push(entry); writeLog(memoryLog); renderLog();
+  session.start = Date.now(); session.soundingMs = 0; session.held = [];
+  $("logwrap").open = true;
+  statusEl.textContent = `Session saved: ${entry.minutes} min, ${entry.heldNotes} held notes. A new session has started.`;
+});
+
+$("export").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(memoryLog, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "theremin-log-" + new Date().toISOString().slice(0, 10) + ".json";
+  document.body.appendChild(a); a.click(); a.remove();
+});
+$("clear").addEventListener("click", () => {
+  if (confirm("Clear the practice log on this phone?")) { memoryLog = []; writeLog(memoryLog); renderLog(); }
+});
+</script>
+</body>
+  </html>
+  
